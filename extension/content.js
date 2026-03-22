@@ -1,60 +1,106 @@
-console.log("Zentriq content script loaded");
+console.log("Zentriq loaded");
 
-(async function () {
+// styles
+const style = document.createElement("style");
+style.innerHTML = `
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+`;
+document.head.appendChild(style);
 
-    let text = document.body.innerText;
 
-    console.log("Checking page...");
+// find privacy link
+function findPrivacyLink() {
+    let links = document.querySelectorAll("a");
 
-    if (text.toLowerCase().includes("privacy")) {
+    for (let link of links) {
+        let text = (link.innerText || "").toLowerCase();
+        let href = (link.href || "").toLowerCase();
 
-        console.log("Privacy detected");
-
-        chrome.runtime.sendMessage(
-            {
-                action: "analyze",
-                text: text.slice(0, 3000)
-            },
-            function (response) {
-
-                console.log("Response:", response);
-
-                if (!response) {
-                    console.error("No response from backend");
-                    return;
-                }
-
-                showPopup(response);
-            }
-        );
+        if (text.includes("privacy") || href.includes("privacy")) {
+            return link.href;
+        }
     }
 
-})();
+    // fallback for LeetCode
+    if (window.location.hostname.includes("leetcode.com")) {
+        return "https://leetcode.com/privacy/";
+    }
 
+    return null;
+}
+
+
+// popup
 function showPopup(data) {
 
     let existing = document.getElementById("zentriq-popup");
     if (existing) existing.remove();
 
     let popup = document.createElement("div");
-    popup.id = "zentriq-popup";
+
+    let color = data.result === "High" ? "red" :
+                data.result === "Medium" ? "orange" : "lightgreen";
 
     popup.innerHTML = `
-        <h3>🔐 Zentriq</h3>
-        <p><b>Risk:</b> ${data.result}</p>
-        <p><b>Score:</b> ${data.score}%</p>
+        <div style="font-size:16px;margin-bottom:8px;">🔐 Zentriq</div>
+        <div>Risk: <b style="color:${color}">${data.result}</b></div>
+        <div>Score: ${data.score}%</div>
     `;
 
     popup.style.position = "fixed";
-    popup.style.top = "20px";              // 🔥 changed
+    popup.style.top = "20px";
     popup.style.right = "20px";
-    popup.style.width = "260px";
-    popup.style.background = "#000";       // 🔥 strong color
-    popup.style.color = "#fff";
-    popup.style.padding = "15px";
+    popup.style.background = "#111";
+    popup.style.color = "white";
+    popup.style.padding = "12px";
     popup.style.borderRadius = "10px";
-    popup.style.zIndex = "999999";         // 🔥 VERY IMPORTANT
-    popup.style.boxShadow = "0 0 15px rgba(0,0,0,0.7)";
+    popup.style.zIndex = "999999";
+    popup.style.animation = "slideIn 0.4s ease";
 
     document.body.appendChild(popup);
 }
+
+
+// MAIN FLOW
+
+setTimeout(() => {
+
+    let url = window.location.href.toLowerCase();
+
+    // ✅ CASE 1: Already on privacy page → analyze
+    if (url.includes("privacy")) {
+
+        console.log("Privacy page detected");
+
+        chrome.runtime.sendMessage(
+            {
+                action: "analyze",
+                text: document.body.innerText.slice(0, 4000)
+            },
+            function (res) {
+                if (!res) return;
+                showPopup(res);
+            }
+        );
+
+        return;
+    }
+
+    // ✅ CASE 2: Main page → open privacy ONCE
+    if (!sessionStorage.getItem("zentriq_opened")) {
+
+        let link = findPrivacyLink();
+
+        if (link) {
+            console.log("Opening privacy page:", link);
+
+            sessionStorage.setItem("zentriq_opened", "true");
+
+            window.open(link, "_blank");
+        }
+    }
+
+}, 2500);
